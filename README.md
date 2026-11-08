@@ -37,3 +37,9 @@ and the wheel build. Set `TEST_MONGODB_URI` to run the database-backed restart t
 CI supplies a MongoDB service and builds the Docker image.
 
 See [low-level design](docs/lld.md).
+
+## BA documentation lab
+
+Use the [CreateMobilePhone Copilot lab](docs/labs/create-mobile-phone/README.md)
+to compare a plain prompt with the repository skill on the same pinned Products
+Catalog evidence.

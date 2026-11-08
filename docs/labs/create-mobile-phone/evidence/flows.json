@@ -1,0 +1,15 @@
+[
+  {
+    "actionName": "CreateMobilePhoneCommand",
+    "steps": [
+      "Map request details to a new phone aggregate and normalize currency text.",
+      "Run the phone policy; no hardware or money rules are added by this flow.",
+      "If phone validation fails, throw validation_failed before staging current or history rows.",
+      "Stage the new phone in EF; this does not commit it.",
+      "Build the first history snapshot with operation Inserted and the phone change time.",
+      "Stage the Inserted history row in the same EF context as the phone.",
+      "Save current and history together; a successful SQL save commits both, while a thrown save does not return success.",
+      "Map the saved phone to details; the endpoint returns 201 and its relative Location."
+    ]
+  }
+]
