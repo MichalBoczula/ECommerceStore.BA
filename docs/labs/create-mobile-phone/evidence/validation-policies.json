@@ -1,0 +1,132 @@
+[
+  {
+    "policyName": "ElectronicDetailsValidationPolicy",
+    "rules": [
+      {
+        "ruleName": "ElectronicDetailsStringsValidationRule",
+        "rules": [
+          {
+            "message": "CPU cannot be null or whitespace.",
+            "name": "ElectronicDetailsStringsValidationRule",
+            "entity": "ElectronicDetails"
+          },
+          {
+            "message": "GPU cannot be null or whitespace.",
+            "name": "ElectronicDetailsStringsValidationRule",
+            "entity": "ElectronicDetails"
+          },
+          {
+            "message": "Ram cannot be null or whitespace.",
+            "name": "ElectronicDetailsStringsValidationRule",
+            "entity": "ElectronicDetails"
+          },
+          {
+            "message": "Storage cannot be null or whitespace.",
+            "name": "ElectronicDetailsStringsValidationRule",
+            "entity": "ElectronicDetails"
+          },
+          {
+            "message": "Display type cannot be null or whitespace.",
+            "name": "ElectronicDetailsStringsValidationRule",
+            "entity": "ElectronicDetails"
+          },
+          {
+            "message": "Battery type cannot be null or whitespace.",
+            "name": "ElectronicDetailsStringsValidationRule",
+            "entity": "ElectronicDetails"
+          }
+        ]
+      },
+      {
+        "ruleName": "ElectronicDetailsNumbersValidationRule",
+        "rules": [
+          {
+            "message": "Refresh rate cannot be zero or below.",
+            "name": "ElectronicDetailsNumbersValidationRule",
+            "entity": "ElectronicDetails"
+          },
+          {
+            "message": "Screen size cannot be zero or below.",
+            "name": "ElectronicDetailsNumbersValidationRule",
+            "entity": "ElectronicDetails"
+          },
+          {
+            "message": "Width cannot be zero or below.",
+            "name": "ElectronicDetailsNumbersValidationRule",
+            "entity": "ElectronicDetails"
+          },
+          {
+            "message": "Height cannot be zero or below.",
+            "name": "ElectronicDetailsNumbersValidationRule",
+            "entity": "ElectronicDetails"
+          },
+          {
+            "message": "Battery capacity cannot be zero or below.",
+            "name": "ElectronicDetailsNumbersValidationRule",
+            "entity": "ElectronicDetails"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "policyName": "MobilePhonesValidationPolicy",
+    "rules": [
+      {
+        "ruleName": "MobilePhonesCommonDescriptionValidationRule",
+        "rules": [
+          {
+            "message": "Common description cannot be null.",
+            "name": "MobilePhonesCommonDescriptionValidationRule",
+            "entity": "MobilePhone"
+          },
+          {
+            "message": "Name cannot be null or whitespace.",
+            "name": "MobilePhonesCommonDescriptionValidationRule",
+            "entity": "MobilePhone"
+          },
+          {
+            "message": "Description cannot be null or whitespace.",
+            "name": "MobilePhonesCommonDescriptionValidationRule",
+            "entity": "MobilePhone"
+          },
+          {
+            "message": "Brand cannot be null or whitespace.",
+            "name": "MobilePhonesCommonDescriptionValidationRule",
+            "entity": "MobilePhone"
+          }
+        ]
+      },
+      {
+        "ruleName": "MobilePhonesStringValidationRule",
+        "rules": [
+          {
+            "message": "Description2 cannot be null or whitespace.",
+            "name": "MobilePhonesStringValidationRule",
+            "entity": "MobilePhone"
+          },
+          {
+            "message": "Description3 cannot be null or whitespace.",
+            "name": "MobilePhonesStringValidationRule",
+            "entity": "MobilePhone"
+          },
+          {
+            "message": "Camera cannot be null or whitespace.",
+            "name": "MobilePhonesStringValidationRule",
+            "entity": "MobilePhone"
+          }
+        ]
+      },
+      {
+        "ruleName": "MobilePhonesIsNullValidationRule",
+        "rules": [
+          {
+            "message": "Mobile phone cannot be null.",
+            "name": "MobilePhonesIsNullValidationRule",
+            "entity": "MobilePhone"
+          }
+        ]
+      }
+    ]
+  }
+]

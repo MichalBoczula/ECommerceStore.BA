@@ -1,0 +1,887 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "ProductCatalog.Api",
+    "version": "1.0"
+  },
+  "paths": {
+    "/mobile-phones": {
+      "post": {
+        "tags": [
+          "MobilePhones"
+        ],
+        "summary": "Create mobile phone",
+        "description": "Creates a new mobile phone and returns the created resource.",
+        "operationId": "CreateMobilePhone",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMobilePhoneExternalDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "headers": {
+              "Location": {
+                "description": "Relative path to the created phone; GET returns the same resource identifier.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                },
+                "example": "/mobile-phones/4f769bfe-bb85-4ba3-b705-36042c1049fc"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobilePhoneDetailsDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiProblemDetails": {
+        "required": [
+          "code",
+          "detail",
+          "errors",
+          "instance",
+          "missingProperties",
+          "status",
+          "title",
+          "traceId",
+          "type"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Problem type URI identifying the HTTP error category.",
+            "format": "uri",
+            "example": "https://datatracker.ietf.org/doc/html/rfc7231#section-6.5.1"
+          },
+          "title": {
+            "type": "string",
+            "description": "Short safe error title.",
+            "example": "Validation failed."
+          },
+          "status": {
+            "type": "integer",
+            "description": "HTTP status, equal to the actual response status.",
+            "format": "int32",
+            "example": 400
+          },
+          "detail": {
+            "type": "string",
+            "description": "Safe error explanation; server exceptions do not expose their internal message.",
+            "example": "The request failed validation."
+          },
+          "instance": {
+            "type": "string",
+            "description": "Actual request path, without query parameters.",
+            "format": "uri-reference",
+            "example": "/mobile-phones"
+          },
+          "code": {
+            "type": "string",
+            "description": "Stable machine-readable error code; see the problem contract for status/cause mappings.",
+            "example": "validation_failed"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "description": "Validation errors; an empty array for failures without domain validation errors."
+          },
+          "missingProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Serializer-required members missing from the failing object; empty for other causes.",
+            "example": [
+              "commonDescription"
+            ]
+          },
+          "traceId": {
+            "type": "string",
+            "description": "Request trace identifier for correlating diagnostics; not a fixed value.",
+            "example": "example-trace-id"
+          }
+        },
+        "additionalProperties": {},
+        "description": "Response object. All listed fields are present; nullability is specified separately from presence."
+      },
+      "CommonDescriptionDto": {
+        "required": [
+          "brand",
+          "description",
+          "mainPhoto",
+          "name",
+          "otherPhotos"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Display name of the phone; create/update reject blank names.",
+            "example": "Galaxy S24"
+          },
+          "brand": {
+            "type": "string",
+            "description": "Free-text phone brand; create/update reject blank brands. The filter uses a separate enum.",
+            "example": "Samsung"
+          },
+          "description": {
+            "type": "string",
+            "description": "Main product description; create/update reject blank text.",
+            "example": "An Android phone with an OLED display."
+          },
+          "mainPhoto": {
+            "type": "string",
+            "description": "Main photo reference as stored. May be a relative filename or URL; not constrained to an absolute URI.",
+            "example": "main-photo.jpg"
+          },
+          "otherPhotos": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Additional stored photo references, in supplied order; an empty array is allowed.",
+            "example": [
+              "side-photo.jpg"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "description": "Response object. All listed fields are present; nullability is specified separately from presence."
+      },
+      "CommonDescriptionExtrernalDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Display name of the phone; create/update reject blank names.",
+            "example": "Galaxy S24"
+          },
+          "brand": {
+            "type": "string",
+            "description": "Free-text phone brand; create/update reject blank brands. The filter uses a separate enum.",
+            "example": "Samsung"
+          },
+          "description": {
+            "type": "string",
+            "description": "Main product description; create/update reject blank text.",
+            "example": "An Android phone with an OLED display."
+          },
+          "mainPhoto": {
+            "type": "string",
+            "description": "Main photo reference as stored. May be a relative filename or URL; not constrained to an absolute URI.",
+            "example": "main-photo.jpg"
+          },
+          "otherPhotos": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Additional stored photo references, in supplied order; an empty array is allowed.",
+            "example": [
+              "side-photo.jpg"
+            ]
+          }
+        },
+        "description": "Request object. Required lists reflect serializer-required members, not every domain rule. Unknown JSON members are ignored."
+      },
+      "ConnectivityDto": {
+        "required": [
+          "bluetooth",
+          "has5G",
+          "nfc",
+          "wiFi"
+        ],
+        "type": "object",
+        "properties": {
+          "has5G": {
+            "type": "boolean",
+            "description": "Whether the phone supports 5G connectivity.",
+            "example": true
+          },
+          "wiFi": {
+            "type": "boolean",
+            "description": "Whether the phone supports Wi-Fi.",
+            "example": true
+          },
+          "nfc": {
+            "type": "boolean",
+            "description": "Whether the phone supports NFC.",
+            "example": true
+          },
+          "bluetooth": {
+            "type": "boolean",
+            "description": "Whether the phone supports Bluetooth.",
+            "example": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Response object. All listed fields are present; nullability is specified separately from presence."
+      },
+      "CreateConnectivityExternalDto": {
+        "required": [
+          "bluetooth",
+          "has5G",
+          "nfc",
+          "wiFi"
+        ],
+        "type": "object",
+        "properties": {
+          "has5G": {
+            "type": "boolean",
+            "description": "Whether the phone supports 5G connectivity.",
+            "example": true
+          },
+          "wiFi": {
+            "type": "boolean",
+            "description": "Whether the phone supports Wi-Fi.",
+            "example": true
+          },
+          "nfc": {
+            "type": "boolean",
+            "description": "Whether the phone supports NFC.",
+            "example": true
+          },
+          "bluetooth": {
+            "type": "boolean",
+            "description": "Whether the phone supports Bluetooth.",
+            "example": true
+          }
+        },
+        "description": "Request object. Required lists reflect serializer-required members, not every domain rule. Unknown JSON members are ignored."
+      },
+      "CreateElectronicDetailsExternalDto": {
+        "type": "object",
+        "properties": {
+          "cpu": {
+            "type": "string",
+            "description": "CPU model text; no hardware-unit conversion is performed.",
+            "example": "Octa-core"
+          },
+          "gpu": {
+            "type": "string",
+            "description": "GPU model text.",
+            "example": "Adreno"
+          },
+          "ram": {
+            "type": "string",
+            "description": "RAM capacity as free text, including its unit.",
+            "example": "8GB"
+          },
+          "storage": {
+            "type": "string",
+            "description": "Storage capacity as free text, including its unit.",
+            "example": "256GB"
+          },
+          "displayType": {
+            "type": "string",
+            "description": "Display technology text.",
+            "example": "OLED"
+          },
+          "refreshRateHz": {
+            "type": "integer",
+            "description": "Display refresh rate in hertz; create/update do not invoke the standalone hardware validation policy.",
+            "format": "int32",
+            "example": 120
+          },
+          "screenSizeInches": {
+            "type": "number",
+            "description": "Screen diagonal in inches, represented as a JSON number.",
+            "format": "double",
+            "example": 6.4
+          },
+          "width": {
+            "type": "integer",
+            "description": "Stored handset width value; the API does not convert units.",
+            "format": "int32",
+            "example": 72
+          },
+          "height": {
+            "type": "integer",
+            "description": "Stored handset height value; the API does not convert units.",
+            "format": "int32",
+            "example": 152
+          },
+          "batteryType": {
+            "type": "string",
+            "description": "Battery technology text.",
+            "example": "Li-Ion"
+          },
+          "batteryCapacity": {
+            "type": "integer",
+            "description": "Stored battery capacity value; the API does not convert units.",
+            "format": "int32",
+            "example": 4500
+          }
+        },
+        "description": "Request object. Required lists reflect serializer-required members, not every domain rule. Unknown JSON members are ignored."
+      },
+      "CreateMobilePhoneExternalDto": {
+        "required": [
+          "camera",
+          "commonDescription",
+          "connectivity",
+          "description2",
+          "description3",
+          "electronicDetails",
+          "faceId",
+          "fingerPrint",
+          "price",
+          "satelliteNavigationSystems",
+          "sensors"
+        ],
+        "type": "object",
+        "properties": {
+          "commonDescription": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CommonDescriptionExtrernalDto"
+              }
+            ],
+            "description": "Name, brand, descriptive text and photo references for the phone."
+          },
+          "electronicDetails": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CreateElectronicDetailsExternalDto"
+              }
+            ],
+            "description": "Hardware specifications. The published ElectronicDetails policy is standalone and is not invoked by create/update."
+          },
+          "connectivity": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CreateConnectivityExternalDto"
+              }
+            ],
+            "description": "Supported connectivity features; false means the feature is absent."
+          },
+          "satelliteNavigationSystems": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CreateSatelliteNavigationSystemExternalDto"
+              }
+            ],
+            "description": "Supported satellite navigation systems."
+          },
+          "sensors": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CreateSensorsExternalDto"
+              }
+            ],
+            "description": "Supported sensors; false means the sensor is absent."
+          },
+          "camera": {
+            "type": "string",
+            "description": "Camera specification text; create/update reject blank text.",
+            "example": "50MP"
+          },
+          "fingerPrint": {
+            "type": "boolean",
+            "description": "Whether fingerprint recognition is supported.",
+            "example": true
+          },
+          "faceId": {
+            "type": "boolean",
+            "description": "Whether face recognition is supported.",
+            "example": false
+          },
+          "price": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CreateMoneyExternalDto"
+              }
+            ],
+            "description": "Price amount and currency. The current write policy adds no money rules; no positivity or ISO currency constraint is implied."
+          },
+          "description2": {
+            "type": "string",
+            "description": "Second product description section; create/update reject blank text.",
+            "example": "Display and connectivity details."
+          },
+          "description3": {
+            "type": "string",
+            "description": "Third product description section; create/update reject blank text.",
+            "example": "Battery and sensor details."
+          }
+        },
+        "description": "Request object. Required lists reflect serializer-required members, not every domain rule. Unknown JSON members are ignored."
+      },
+      "CreateMoneyExternalDto": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "description": "Price amount as a decimal JSON number; trailing zeroes have no semantic significance.",
+            "format": "double",
+            "example": 999.99
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency text, uppercased by the Money value object; no currency catalogue or three-letter validation is enforced.",
+            "example": "PLN"
+          }
+        },
+        "description": "Request object. Required lists reflect serializer-required members, not every domain rule. Unknown JSON members are ignored."
+      },
+      "CreateSatelliteNavigationSystemExternalDto": {
+        "required": [
+          "agps",
+          "galileo",
+          "glonass",
+          "gps",
+          "qzss"
+        ],
+        "type": "object",
+        "properties": {
+          "gps": {
+            "type": "boolean",
+            "description": "Whether GPS is supported.",
+            "example": true
+          },
+          "agps": {
+            "type": "boolean",
+            "description": "Whether assisted GPS is supported.",
+            "example": true
+          },
+          "galileo": {
+            "type": "boolean",
+            "description": "Whether Galileo is supported.",
+            "example": true
+          },
+          "glonass": {
+            "type": "boolean",
+            "description": "Whether GLONASS is supported.",
+            "example": true
+          },
+          "qzss": {
+            "type": "boolean",
+            "description": "Whether QZSS is supported.",
+            "example": true
+          }
+        },
+        "description": "Request object. Required lists reflect serializer-required members, not every domain rule. Unknown JSON members are ignored."
+      },
+      "CreateSensorsExternalDto": {
+        "required": [
+          "accelerometer",
+          "ambientLight",
+          "barometer",
+          "compass",
+          "gyroscope",
+          "halla",
+          "proximity"
+        ],
+        "type": "object",
+        "properties": {
+          "accelerometer": {
+            "type": "boolean",
+            "description": "Whether an accelerometer is present.",
+            "example": true
+          },
+          "gyroscope": {
+            "type": "boolean",
+            "description": "Whether a gyroscope is present.",
+            "example": true
+          },
+          "proximity": {
+            "type": "boolean",
+            "description": "Whether a proximity sensor is present.",
+            "example": true
+          },
+          "compass": {
+            "type": "boolean",
+            "description": "Whether a compass is present.",
+            "example": true
+          },
+          "barometer": {
+            "type": "boolean",
+            "description": "Whether a barometer is present.",
+            "example": false
+          },
+          "halla": {
+            "type": "boolean",
+            "description": "Whether a Hall sensor is present; halla is the existing wire property name.",
+            "example": false
+          },
+          "ambientLight": {
+            "type": "boolean",
+            "description": "Whether an ambient light sensor is present.",
+            "example": true
+          }
+        },
+        "description": "Request object. Required lists reflect serializer-required members, not every domain rule. Unknown JSON members are ignored."
+      },
+      "ElectronicDetailsDto": {
+        "required": [
+          "batteryCapacity",
+          "batteryType",
+          "cpu",
+          "displayType",
+          "gpu",
+          "height",
+          "ram",
+          "refreshRateHz",
+          "screenSizeInches",
+          "storage",
+          "width"
+        ],
+        "type": "object",
+        "properties": {
+          "cpu": {
+            "type": "string",
+            "description": "CPU model text; no hardware-unit conversion is performed.",
+            "example": "Octa-core"
+          },
+          "gpu": {
+            "type": "string",
+            "description": "GPU model text.",
+            "example": "Adreno"
+          },
+          "ram": {
+            "type": "string",
+            "description": "RAM capacity as free text, including its unit.",
+            "example": "8GB"
+          },
+          "storage": {
+            "type": "string",
+            "description": "Storage capacity as free text, including its unit.",
+            "example": "256GB"
+          },
+          "displayType": {
+            "type": "string",
+            "description": "Display technology text.",
+            "example": "OLED"
+          },
+          "refreshRateHz": {
+            "type": "integer",
+            "description": "Display refresh rate in hertz; create/update do not invoke the standalone hardware validation policy.",
+            "format": "int32",
+            "example": 120
+          },
+          "screenSizeInches": {
+            "type": "number",
+            "description": "Screen diagonal in inches, represented as a JSON number.",
+            "format": "double",
+            "example": 6.4
+          },
+          "width": {
+            "type": "integer",
+            "description": "Stored handset width value; the API does not convert units.",
+            "format": "int32",
+            "example": 72
+          },
+          "height": {
+            "type": "integer",
+            "description": "Stored handset height value; the API does not convert units.",
+            "format": "int32",
+            "example": 152
+          },
+          "batteryType": {
+            "type": "string",
+            "description": "Battery technology text.",
+            "example": "Li-Ion"
+          },
+          "batteryCapacity": {
+            "type": "integer",
+            "description": "Stored battery capacity value; the API does not convert units.",
+            "format": "int32",
+            "example": 4500
+          }
+        },
+        "additionalProperties": false,
+        "description": "Response object. All listed fields are present; nullability is specified separately from presence."
+      },
+      "MobilePhoneDetailsDto": {
+        "required": [
+          "camera",
+          "commonDescription",
+          "connectivity",
+          "description2",
+          "description3",
+          "electronicDetails",
+          "faceId",
+          "fingerPrint",
+          "id",
+          "isActive",
+          "price",
+          "satelliteNavigationSystems",
+          "sensors"
+        ],
+        "type": "object",
+        "properties": {
+          "commonDescription": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CommonDescriptionDto"
+              }
+            ],
+            "description": "Name, brand, descriptive text and photo references for the phone."
+          },
+          "electronicDetails": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ElectronicDetailsDto"
+              }
+            ],
+            "description": "Hardware specifications. The published ElectronicDetails policy is standalone and is not invoked by create/update."
+          },
+          "connectivity": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConnectivityDto"
+              }
+            ],
+            "description": "Supported connectivity features; false means the feature is absent."
+          },
+          "satelliteNavigationSystems": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SatelliteNavigationSystemDto"
+              }
+            ],
+            "description": "Supported satellite navigation systems."
+          },
+          "sensors": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SensorsDto"
+              }
+            ],
+            "description": "Supported sensors; false means the sensor is absent."
+          },
+          "camera": {
+            "type": "string",
+            "description": "Camera specification text; create/update reject blank text.",
+            "example": "50MP"
+          },
+          "price": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MoneyDto"
+              }
+            ],
+            "description": "Price amount and currency. The current write policy adds no money rules; no positivity or ISO currency constraint is implied."
+          },
+          "fingerPrint": {
+            "type": "boolean",
+            "description": "Whether fingerprint recognition is supported.",
+            "example": true
+          },
+          "faceId": {
+            "type": "boolean",
+            "description": "Whether face recognition is supported.",
+            "example": false
+          },
+          "description2": {
+            "type": "string",
+            "description": "Second product description section; create/update reject blank text.",
+            "example": "Display and connectivity details."
+          },
+          "description3": {
+            "type": "string",
+            "description": "Third product description section; create/update reject blank text.",
+            "example": "Battery and sensor details."
+          },
+          "id": {
+            "type": "string",
+            "description": "Server-generated identifier; in a history item this identifies the history row, not the phone.",
+            "format": "uuid",
+            "example": "4f769bfe-bb85-4ba3-b705-36042c1049fc"
+          },
+          "isActive": {
+            "type": "boolean",
+            "description": "False after soft delete. Inactive phones remain readable by ID and are excluded from list/filter/top/by-IDs reads.",
+            "example": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Response object. All listed fields are present; nullability is specified separately from presence."
+      },
+      "MoneyDto": {
+        "required": [
+          "amount",
+          "currency"
+        ],
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "description": "Price amount as a decimal JSON number; trailing zeroes have no semantic significance.",
+            "format": "double",
+            "example": 999.99
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency text, uppercased by the Money value object; no currency catalogue or three-letter validation is enforced.",
+            "example": "PLN"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Response object. All listed fields are present; nullability is specified separately from presence."
+      },
+      "SatelliteNavigationSystemDto": {
+        "required": [
+          "agps",
+          "galileo",
+          "glonass",
+          "gps",
+          "qzss"
+        ],
+        "type": "object",
+        "properties": {
+          "gps": {
+            "type": "boolean",
+            "description": "Whether GPS is supported.",
+            "example": true
+          },
+          "agps": {
+            "type": "boolean",
+            "description": "Whether assisted GPS is supported.",
+            "example": true
+          },
+          "galileo": {
+            "type": "boolean",
+            "description": "Whether Galileo is supported.",
+            "example": true
+          },
+          "glonass": {
+            "type": "boolean",
+            "description": "Whether GLONASS is supported.",
+            "example": true
+          },
+          "qzss": {
+            "type": "boolean",
+            "description": "Whether QZSS is supported.",
+            "example": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Response object. All listed fields are present; nullability is specified separately from presence."
+      },
+      "SensorsDto": {
+        "required": [
+          "accelerometer",
+          "ambientLight",
+          "barometer",
+          "compass",
+          "gyroscope",
+          "halla",
+          "proximity"
+        ],
+        "type": "object",
+        "properties": {
+          "accelerometer": {
+            "type": "boolean",
+            "description": "Whether an accelerometer is present.",
+            "example": true
+          },
+          "gyroscope": {
+            "type": "boolean",
+            "description": "Whether a gyroscope is present.",
+            "example": true
+          },
+          "proximity": {
+            "type": "boolean",
+            "description": "Whether a proximity sensor is present.",
+            "example": true
+          },
+          "compass": {
+            "type": "boolean",
+            "description": "Whether a compass is present.",
+            "example": true
+          },
+          "barometer": {
+            "type": "boolean",
+            "description": "Whether a barometer is present.",
+            "example": false
+          },
+          "halla": {
+            "type": "boolean",
+            "description": "Whether a Hall sensor is present; halla is the existing wire property name.",
+            "example": false
+          },
+          "ambientLight": {
+            "type": "boolean",
+            "description": "Whether an ambient light sensor is present.",
+            "example": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Response object. All listed fields are present; nullability is specified separately from presence."
+      },
+      "ValidationError": {
+        "required": [
+          "entity",
+          "message",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Human-readable possible or actual validation error.",
+            "example": "Name cannot be null or whitespace."
+          },
+          "name": {
+            "type": "string",
+            "description": "Validation rule name identifying the error cause.",
+            "example": "MobilePhonesCommonDescriptionValidationRule"
+          },
+          "entity": {
+            "type": "string",
+            "description": "Name of the validated entity or request type.",
+            "example": "MobilePhone"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Response object. All listed fields are present; nullability is specified separately from presence."
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "MobilePhones"
+    }
+  ]
+}
