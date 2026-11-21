@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from json import dumps
 from uuid import UUID, uuid4
 
 from ecommerce_store_ba.application.ports import SessionRepository
@@ -47,6 +48,10 @@ class SessionService:
             raise SessionNotFoundError
         return session
 
+    async def pin_snapshot(self, session_id: UUID, snapshot_id: str) -> Session:
+        await self._repository.pin_snapshot(session_id, snapshot_id)
+        return await self.get(session_id)
+
     async def capture(self, session_id: UUID, exchange_id: UUID, data: CaptureExchange) -> Exchange:
         size = len(data.request_json.encode("utf-8")) + len(data.response_json.encode("utf-8"))
         if size > MAX_EXCHANGE_BYTES:
@@ -66,6 +71,10 @@ class SessionService:
         if exchange is None:
             raise ExchangeNotFoundError
         return exchange
+
+
+def canonical_json(value: object) -> str:
+    return dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
 
 
 def _utc_now() -> datetime:
