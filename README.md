@@ -65,6 +65,8 @@ See [low-level design](docs/lld.md).
 
 ## BA workflow
 
+See [ADR 0001 · Evidence-backed BA workflow](docs/adr/0001-evidence-backed-ba-workflow.md) for component responsibilities, the run lifecycle, and retry behavior.
+
 Use the [BA run guide](docs/workflow.md) for Foundry configuration, the review and publication API, FigJam, and QA handoff.
 
 ## BA documentation lab
