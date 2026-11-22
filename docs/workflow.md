@@ -42,6 +42,21 @@ uv run --locked python scripts/ba_run.py review SESSION_ID RUN_ID
 
 Use the returned session ID and a UUID you generate for the run. Review `draft.process`, the `sourceIds`, and `openQuestions` before publishing. Ask Codex to publish that run through Figma MCP using the repository instructions, or use `scripts/ba_run.py figjam` and `publish` to complete the same steps from another supported client.
 
+## Local smoke test
+
+Run the basic Python regressions with `uv run --locked pytest -q tests/test_smoke_create_mobile_phone.py`. The fixtures exercise BA's two Knowledge queries, the captured Allure evidence, and the PNG and TXT output.
+
+For a live smoke, run BA with a reachable Knowledge Assistant and the configured Foundry agent. Set the client environment variables `BA_BASE_URL` and `BA_API_KEY`. In an authenticated Codex session with Figma MCP, invoke `$smoke-ba-create-mobile-phone` to run the test. The test checks `POST /mobile-phones`, the cited name validation rule, and the passed Allure scenario with Given/When/Then steps in one snapshot. The RAG Allure evaluation maps this scenario to `REF07_CreateMobilePhone_01`. [Allure evaluation suite](https://github.com/MichalBoczula/ECommerceStore.KnowledgeAssistant.Api/blob/main/evaluation/allure-v1.json)
+
+The smoke has two local commands for the steps around Figma MCP.
+
+```sh
+uv run --locked python -m tests.smoke_create_mobile_phone prepare
+uv run --locked python -m tests.smoke_create_mobile_phone finish SESSION_ID RUN_ID FIGJAM_URL PNG_PATH
+```
+
+Use the first command's FigJam arguments with `generate_diagram` and capture the resulting diagram with `get_screenshot`. Pass the downloaded PNG and the board link to the second command. It saves `diagram.png` and `description.txt` under `tests-results/create-mobile-phone/<runId>/`. Each run has its own output directory. [Figma MCP tools](https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/)
+
 ## Resume publication
 
 Reuse the session ID, run ID, draft hash and FigJam URL for every retry. BA keeps the generated draft and checkpoints publication in MongoDB. While `figjam_pending`, use the existing board link from the completed MCP call or locate the board by the BA run suffix. With `jira_pending`, a repeated publication looks up the issue by its run label. If Jira definitively rejects create, the same publication can attempt create after the configuration is corrected. An existing Jira issue is updated with one section per run.

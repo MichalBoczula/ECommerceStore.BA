@@ -1,6 +1,6 @@
 from dataclasses import replace
 from datetime import datetime
-from json import loads
+from json import dumps, loads
 from os import getenv
 from uuid import UUID, uuid4
 from xml.etree.ElementTree import fromstring
@@ -106,7 +106,7 @@ HEADERS = {"X-Api-Key": "test-only-key"}
 ALLURE_URL = "https://docs.example.test/livedoc/v1/products/allure/#behaviors"
 
 
-def _knowledge_settings(**changes: object) -> Settings:
+def knowledge_settings(**changes: object) -> Settings:
     return Settings.model_validate(
         {
             "api_key": SecretStr("test-only-key"),
@@ -130,7 +130,7 @@ def _source(source_id: str, url: str) -> dict[str, JsonValue]:
     }
 
 
-def _knowledge_response(request: Request) -> Response:
+def knowledge_response(request: Request) -> Response:
     assert request.headers["X-Api-Key"] == "upstream-test-key"
     if request.url.path == "/api/v1/catalog":
         assert request.method == "GET"
@@ -154,9 +154,13 @@ def _knowledge_response(request: Request) -> Response:
         "path": "/mobile-phones",
         "operationId": "CreateMobilePhone",
         "mediaType": "application/json",
-        "requestSchema": {"required": ["name"], "type": "object"},
+        "requestSchema": {
+            "required": ["commonDescription"],
+            "type": "object",
+            "properties": {"commonDescription": {"type": "object", "required": ["name"]}},
+        },
         "referenceSchemas": {},
-        "exampleRequest": {"name": "Example Phone"},
+        "exampleRequest": {"commonDescription": {"name": "Example Phone"}},
         "exampleOrigin": "openapi",
         "exampleSchemaValid": True,
         "sourceIds": ["contract"],
@@ -167,7 +171,9 @@ def _knowledge_response(request: Request) -> Response:
             "type": "validation",
             "title": "Validation",
             "sourceIds": ["policy"],
-            "rules": [{"field": "name", "description": "Name is required.", "sourceIds": ["policy"]}],
+            "rules": [
+                {"field": "MobilePhone", "description": "Name cannot be null or whitespace.", "sourceIds": ["policy"]}
+            ],
         }
         sources.append(_source("policy", "https://docs.example.test/livedoc/v1/products/validation.json"))
         request_id = "contract-request"
@@ -176,11 +182,21 @@ def _knowledge_response(request: Request) -> Response:
         section = {
             "type": "scenario",
             "title": "Creating a phone stores an active catalogue entry and its first history snapshot",
-            "content": "The customer sees the new active phone.",
+            "content": dumps(
+                {
+                    "name": "Creating a phone stores an active catalogue entry and its first history snapshot",
+                    "status": "passed",
+                    "steps": [
+                        {"name": "Given I have valid mobile phone details", "status": "passed"},
+                        {"name": "When I submit the create mobile phone request", "status": "passed"},
+                        {"name": "Then the mobile phone is created successfully", "status": "passed"},
+                    ],
+                }
+            ),
             "executionStatus": "passed",
             "sourceIds": ["scenario"],
         }
-        sources.append(_source("scenario", ALLURE_URL))
+        sources.append({**_source("scenario", ALLURE_URL), "path": "allure-results/synthetic-result.json"})
         request_id = "scenario-request"
     return Response(
         200,
@@ -196,7 +212,7 @@ def _knowledge_response(request: Request) -> Response:
     )
 
 
-def _resolve_evidence(client: TestClient) -> tuple[str, UUID, Response]:
+def resolve_evidence(client: TestClient) -> tuple[str, UUID, Response]:
     session = client.post("/api/v1/sessions", json={"operation": "model-flow"}, headers=HEADERS)
     assert session.status_code == 201
     session_url = f"/api/v1/sessions/{session.json()['id']}"
@@ -210,18 +226,18 @@ def test_resolve_evidence_pins_snapshot_and_replays_the_capture() -> None:
 
     def upstream(request: Request) -> Response:
         calls.append(request.url.path)
-        return _knowledge_response(request)
+        return knowledge_response(request)
 
-    app = create_app(_knowledge_settings(), MemoryRepository(), knowledge_transport=MockTransport(upstream))
+    app = create_app(knowledge_settings(), MemoryRepository(), knowledge_transport=MockTransport(upstream))
     with TestClient(app) as client:
-        session_url, exchange_id, resolved = _resolve_evidence(client)
+        session_url, exchange_id, resolved = resolve_evidence(client)
         assert resolved.status_code == 200, resolved.text
         result = resolved.json()
         evidence = result["response"]
         assert result["source"] == "rag"
         assert evidence["snapshotId"] == SNAPSHOT_ID
         assert evidence["contract"]["operationId"] == "CreateMobilePhone"
-        assert evidence["validationRules"][0]["field"] == "name"
+        assert evidence["validationRules"][0]["description"] == "Name cannot be null or whitespace."
         assert evidence["scenarios"][0]["executionStatus"] == "passed"
         assert any(source["url"] == ALLURE_URL for source in evidence["sources"])
         assert evidence["missingEvidence"] == []
@@ -236,7 +252,7 @@ def test_resolve_evidence_pins_snapshot_and_replays_the_capture() -> None:
 @pytest.mark.parametrize("failure", ["different_scope", "unknown_source", "unrelated_operation"])
 def test_evidence_with_a_mismatched_contract_or_provenance(failure: str) -> None:
     def upstream(request: Request) -> Response:
-        original = _knowledge_response(request)
+        original = knowledge_response(request)
         if request.method == "GET":
             return original
         answer = original.json()
@@ -248,9 +264,9 @@ def test_evidence_with_a_mismatched_contract_or_provenance(failure: str) -> None
             answer["sections"][0]["path"] = "/another-operation"
         return Response(200, json=answer)
 
-    app = create_app(_knowledge_settings(), MemoryRepository(), knowledge_transport=MockTransport(upstream))
+    app = create_app(knowledge_settings(), MemoryRepository(), knowledge_transport=MockTransport(upstream))
     with TestClient(app) as client:
-        session_url, exchange_id, resolved = _resolve_evidence(client)
+        session_url, exchange_id, resolved = resolve_evidence(client)
         exchange = client.get(f"{session_url}/exchanges/{exchange_id}", headers=HEADERS)
         if failure == "unrelated_operation":
             assert resolved.status_code == 200, resolved.text
@@ -265,7 +281,7 @@ def test_evidence_with_a_mismatched_contract_or_provenance(failure: str) -> None
 
 
 def test_inactive_pinned_snapshot_is_not_replaced() -> None:
-    app = create_app(_knowledge_settings(), MemoryRepository(), knowledge_transport=MockTransport(_knowledge_response))
+    app = create_app(knowledge_settings(), MemoryRepository(), knowledge_transport=MockTransport(knowledge_response))
     with TestClient(app) as client:
         session = client.post(
             "/api/v1/sessions", json={"operation": "model-flow", "snapshotId": "old-snapshot"}, headers=HEADERS
@@ -375,7 +391,7 @@ class JiraCreateThenLoseResponse:
 
 
 def _exercise_run(client: TestClient) -> str:
-    session_url, evidence_id, evidence = _resolve_evidence(client)
+    session_url, evidence_id, evidence = resolve_evidence(client)
     assert evidence.status_code == 200, evidence.text
     run_url = f"{session_url}/runs/{uuid4()}"
     request = {**REQUEST, "evidenceExchangeId": str(evidence_id)}
@@ -415,9 +431,9 @@ def test_run_reuses_evidence_and_recovers_jira_without_a_second_create() -> None
     agent = ProcessFixture()
     jira = JiraCreateThenLoseResponse()
     app = create_app(
-        _knowledge_settings(),
+        knowledge_settings(),
         MemoryRepository(),
-        knowledge_transport=MockTransport(_knowledge_response),
+        knowledge_transport=MockTransport(knowledge_response),
         run_repository=MemoryRuns(),
         agent=agent,
         jira=jira,
@@ -429,9 +445,9 @@ def test_run_reuses_evidence_and_recovers_jira_without_a_second_create() -> None
 
 def test_run_rejects_agent_citations_outside_the_evidence() -> None:
     app = create_app(
-        _knowledge_settings(),
+        knowledge_settings(),
         MemoryRepository(),
-        knowledge_transport=MockTransport(_knowledge_response),
+        knowledge_transport=MockTransport(knowledge_response),
         run_repository=MemoryRuns(),
         agent=ProcessFixture(source_id="made-up-source"),
     )
@@ -448,19 +464,19 @@ def test_run_rejects_agent_citations_outside_the_evidence() -> None:
 def test_mongodb_persists_capture_across_restarts() -> None:
     uri = getenv("TEST_MONGODB_URI", "")
     database = f"test_ba_{uuid4().hex}"
-    settings = _knowledge_settings(mongodb_uri=SecretStr(uri), mongodb_database=database)
+    settings = knowledge_settings(mongodb_uri=SecretStr(uri), mongodb_database=database)
     try:
         with TestClient(
             create_app(
                 settings,
-                knowledge_transport=MockTransport(_knowledge_response),
+                knowledge_transport=MockTransport(knowledge_response),
                 agent=ProcessFixture(),
                 jira=JiraCreateThenLoseResponse(),
             )
         ) as client:
             session_url, exchange_url, headers = _exercise_session(client)
             captured = client.get(exchange_url, headers=headers).json()
-            evidence_session, evidence_id, evidence = _resolve_evidence(client)
+            evidence_session, evidence_id, evidence = resolve_evidence(client)
             assert evidence.status_code == 200, evidence.text
             evidence_json = evidence.json()
             run_url = _exercise_run(client)
