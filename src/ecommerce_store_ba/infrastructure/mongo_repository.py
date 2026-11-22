@@ -55,8 +55,13 @@ class MongoSessionRepository:
             UUID(document["_id"]),
             Operation(document["operation"]),
             document["jira_issue_key"],
-            document["snapshot_id"],
+            document.get("snapshot_id"),
             document["created_at"],
+        )
+
+    async def pin_snapshot(self, session_id: UUID, snapshot_id: str) -> None:
+        await self._sessions.update_one(
+            {"_id": str(session_id), "snapshot_id": None}, {"$set": {"snapshot_id": snapshot_id}}
         )
 
     async def store_exchange(self, exchange: Exchange) -> Exchange:

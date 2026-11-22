@@ -13,6 +13,8 @@ services:
     environment:
       BA_API_KEY: ${BA_API_KEY:?Set BA_API_KEY before starting Compose}
       BA_MONGODB_URI: mongodb://mongo:27017
+      BA_KNOWLEDGE_API_URL:
+      BA_KNOWLEDGE_API_KEY:
     depends_on:
       mongo:
         condition: service_healthy

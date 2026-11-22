@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter
@@ -42,6 +43,12 @@ class CaptureExchangeRequest(ApiModel):
     request: JsonValue
     response: JsonValue
     model: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class EvidenceRequest(ApiModel):
+    service: Literal["products", "users", "invoices", "payments"]
+    method: Literal["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE", "TRACE"]
+    path: str = Field(min_length=1, max_length=512, pattern=r"^/[a-zA-Z0-9_./{}%~-]*$")
 
 
 class ExchangeResponse(ApiModel):

@@ -21,6 +21,7 @@ before running `uv run --locked uvicorn ecommerce_store_ba.main:app --port 8082`
 | `GET /api/v1/sessions/{id}` | Read session metadata |
 | `PUT /api/v1/sessions/{id}/exchanges/{exchangeId}` | Record an immutable request/response pair |
 | `GET /api/v1/sessions/{id}/exchanges/{exchangeId}` | Read the recorded pair |
+| `PUT /api/v1/sessions/{id}/evidence/{exchangeId}` | Resolve and record Knowledge Assistant evidence for an operation |
 
 Create a session with `{"operation":"model-flow","jiraIssueKey":"STORE-12","snapshotId":"snapshot-1"}`.
 Capture JSON with `source` (`agent`, `jira`, or `rag`), `request`, `response`
@@ -28,6 +29,30 @@ and optional `model`. Use a distinct UUID per exchange and reuse it when retryin
 the same write. A different payload for the same session and exchange IDs returns
 `409`. The combined canonical JSON limit is 256 KiB. Clients supply reviewed,
 redacted payloads before capture. Request headers are outside the evidence contract.
+
+## Resolve operation evidence
+
+Set `BA_KNOWLEDGE_API_URL` to the Knowledge API base URL and
+`BA_KNOWLEDGE_API_KEY` to its server-side key. Compose passes both environment
+variables through when set. Create a `model-flow` session and send the operation
+to the evidence route with a caller-generated exchange UUID.
+
+```json
+{"service": "products", "method": "POST", "path": "/mobile-phones"}
+```
+
+BA checks the active Knowledge catalog before querying it. A session with a supplied
+`snapshotId` uses that snapshot. For an unpinned session, BA pins the sole live
+snapshot for the service. An unavailable or ambiguous snapshot returns
+`409 knowledge_snapshot_unavailable`.
+
+The response uses the existing exchange format with `source: rag`. Its
+`response` contains the contract, scenarios, validation rules, source IDs and
+links, Knowledge request IDs, and any upstream limitations. `missingEvidence`
+lists evidence categories absent for the requested operation. Source records
+include the snapshot, source commit and bundle digest. Repeat the PUT with the
+same UUID to read the captured result. The exchange can also be read through
+the exchanges route.
 
 ## Verification
 

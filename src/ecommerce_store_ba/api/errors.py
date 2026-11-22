@@ -9,6 +9,11 @@ from pydantic import BaseModel, Field
 from pymongo.errors import ConnectionFailure
 from starlette.exceptions import HTTPException
 
+from ecommerce_store_ba.application.knowledge import (
+    KnowledgeResponseError,
+    KnowledgeSnapshotError,
+    KnowledgeUnavailableError,
+)
 from ecommerce_store_ba.application.session_service import (
     ExchangeConflictError,
     ExchangeNotFoundError,
@@ -58,6 +63,11 @@ ERRORS: dict[type[Exception], ErrorSpec] = {
     ExchangeNotFoundError: ErrorSpec(404, "exchange_not_found", "Exchange was not found."),
     ExchangeConflictError: ErrorSpec(409, "exchange_conflict", "The exchange ID already has different content."),
     ExchangeTooLargeError: ErrorSpec(413, "exchange_too_large", "The exchange exceeds the capture size limit."),
+    KnowledgeSnapshotError: ErrorSpec(409, "knowledge_snapshot_unavailable", "No matching live snapshot is available."),
+    KnowledgeResponseError: ErrorSpec(
+        502, "knowledge_invalid_response", "Knowledge Assistant returned invalid evidence."
+    ),
+    KnowledgeUnavailableError: ErrorSpec(503, "knowledge_unavailable", "Knowledge Assistant is unavailable."),
     ConnectionFailure: UNAVAILABLE,
 }
 
