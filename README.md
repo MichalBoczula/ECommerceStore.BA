@@ -1,6 +1,6 @@
 # ECommerceStore.BA
 
-Foundation for modeling business processes from Jira requirements and Knowledge Assistant evidence.
+Model sourced business processes from Knowledge Assistant evidence and Jira requirements. Review a versioned draft, publish its diagram to FigJam and its criteria to Jira, then hand off the approved flow to QA.
 
 ## Run locally
 
@@ -62,6 +62,10 @@ and the wheel build. Set `TEST_MONGODB_URI` to run the database-backed restart t
 CI supplies a MongoDB service and builds the Docker image.
 
 See [low-level design](docs/lld.md).
+
+## BA workflow
+
+Use the [BA run guide](docs/workflow.md) for Foundry configuration, the review and publication API, FigJam, and QA handoff.
 
 ## BA documentation lab
 

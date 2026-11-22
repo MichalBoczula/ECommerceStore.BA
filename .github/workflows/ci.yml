@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -35,3 +36,28 @@ jobs:
         env:
           BA_API_KEY: ci-build-only
       - run: docker build -t ecommerce-store-ba:ci .
+      - name: Publish the verified BA image
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$DOCKER_USER"
+          test -n "$DOCKER_TOKEN"
+          image="docker.io/${DOCKER_USER}/ecommerce-store-ba"
+          version="${image}:${GITHUB_SHA}"
+          printf '%s' "$DOCKER_TOKEN" | docker login --username "$DOCKER_USER" --password-stdin
+          docker tag ecommerce-store-ba:ci "$version"
+          docker push "$version"
+          digest_reference="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$version" | awk -F@ '/\/ecommerce-store-ba@sha256:/ {print $2; exit}')"
+          [[ "$digest_reference" =~ ^sha256:[0-9a-f]{64}$ ]]
+          mkdir -p artifacts
+          jq -n --arg image "${image}@${digest_reference}" --arg commit "$GITHUB_SHA" \
+            '{application: "ba", imageReference: $image, commitSha: $commit}' > artifacts/image-reference.json
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+        with:
+          name: image-reference
+          path: artifacts/image-reference.json
+          if-no-files-found: error

@@ -1,7 +1,9 @@
 from dataclasses import replace
+from datetime import datetime
 from json import loads
 from os import getenv
 from uuid import UUID, uuid4
+from xml.etree.ElementTree import fromstring
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,6 +12,10 @@ from pydantic import AnyHttpUrl, JsonValue, SecretStr
 from pymongo import MongoClient
 
 from ecommerce_store_ba.api.app import create_app
+from ecommerce_store_ba.application.knowledge import EvidenceBundle
+from ecommerce_store_ba.application.run_errors import JiraUnavailableError, RunBusyError
+from ecommerce_store_ba.application.run_models import AgentReceipt, JiraContext, JiraReference, Run
+from ecommerce_store_ba.domain.process import AcceptanceCriterion, Actor, ProcessDraft, Step, Transition
 from ecommerce_store_ba.domain.session import Exchange, Session
 from ecommerce_store_ba.infrastructure.settings import Settings
 
@@ -271,24 +277,201 @@ def test_inactive_pinned_snapshot_is_not_replaced() -> None:
         assert client.get(url, headers=HEADERS).json()["snapshotId"] == "old-snapshot"
 
 
+class MemoryRuns:
+    def __init__(self) -> None:
+        self.runs: dict[tuple[UUID, UUID], Run] = {}
+        self.leases: dict[tuple[UUID, UUID], UUID] = {}
+        self.jira_leases: dict[str, UUID] = {}
+
+    async def put(self, run: Run) -> Run:
+        return self.runs.setdefault((run.session_id, run.id), run)
+
+    async def get(self, session_id: UUID, run_id: UUID) -> Run | None:
+        return self.runs.get((session_id, run_id))
+
+    async def claim(self, session_id: UUID, run_id: UUID, token: UUID, now: datetime, until: datetime) -> Run | None:
+        key = session_id, run_id
+        if key in self.leases:
+            return None
+        self.leases[key] = token
+        return self.runs[key]
+
+    async def save(self, run: Run, token: UUID) -> None:
+        key = run.session_id, run.id
+        if self.leases.get(key) != token:
+            raise RunBusyError
+        self.runs[key] = run
+
+    async def release(self, session_id: UUID, run_id: UUID, token: UUID) -> None:
+        if self.leases.get((session_id, run_id)) == token:
+            del self.leases[session_id, run_id]
+
+    async def claim_jira_issue(self, key: str, token: UUID, now: datetime, until: datetime) -> bool:
+        return self.jira_leases.setdefault(key, token) == token
+
+    async def release_jira_issue(self, key: str, token: UUID) -> None:
+        if self.jira_leases.get(key) == token:
+            del self.jira_leases[key]
+
+
+class ProcessFixture:
+    def __init__(self, *, source_id: str = "contract") -> None:
+        self.calls = 0
+        self.source_id = source_id
+
+    async def draft(self, evidence: EvidenceBundle, jira: JiraContext | None) -> tuple[ProcessDraft, AgentReceipt]:
+        self.calls += 1
+        assert evidence.snapshot_id == SNAPSHOT_ID
+        source_ids = [self.source_id]
+        process = ProcessDraft(
+            title="Create mobile phone",
+            actors=[Actor(id="catalog", name="Products Catalog")],
+            steps=[
+                Step(id="start", actor_id="catalog", kind="start", label="Receive request", source_ids=source_ids),
+                Step(id="check", actor_id="catalog", kind="decision", label="Valid request?", source_ids=["policy"]),
+                Step(id="saved", actor_id="catalog", kind="end", label="Phone created", source_ids=["scenario"]),
+                Step(id="reject", actor_id="catalog", kind="end", label="Reject request", source_ids=["policy"]),
+            ],
+            transitions=[
+                Transition(from_id="start", to_id="check", kind="main", condition="", source_ids=source_ids),
+                Transition(from_id="check", to_id="saved", kind="main", condition="Valid", source_ids=["scenario"]),
+                Transition(
+                    from_id="check", to_id="reject", kind="exception", condition="Invalid", source_ids=["policy"]
+                ),
+            ],
+            acceptance_criteria=[
+                AcceptanceCriterion(
+                    title="A valid phone is registered",
+                    given="Valid input",
+                    when="The phone is submitted",
+                    then="It is created",
+                    source_ids=["scenario"],
+                )
+            ],
+            open_questions=[],
+        )
+        return process, AgentReceipt(name="ba", version="1", response_id="resp-1", model="gpt-6-luna")
+
+
+class JiraCreateThenLoseResponse:
+    def __init__(self) -> None:
+        self.creates = 0
+        self.issue: JiraReference | None = None
+
+    async def context(self, key: str) -> JiraContext:
+        raise AssertionError("Expected publication to a new issue")
+
+    async def find_created_issue(self, run: Run) -> JiraReference | None:
+        return self.issue
+
+    async def create_issue(self, run: Run) -> JiraReference:
+        self.creates += 1
+        assert run.figjam_url == "https://www.figma.com/board/BA123/Create-mobile-phone"
+        self.issue = JiraReference(key="STORE-100", url="https://jira.example.test/browse/STORE-100")
+        raise JiraUnavailableError
+
+    async def update_issue(self, key: str, run: Run) -> JiraReference:
+        raise AssertionError("Expected publication to a new issue")
+
+
+def _exercise_run(client: TestClient) -> str:
+    session_url, evidence_id, evidence = _resolve_evidence(client)
+    assert evidence.status_code == 200, evidence.text
+    run_url = f"{session_url}/runs/{uuid4()}"
+    request = {**REQUEST, "evidenceExchangeId": str(evidence_id)}
+    prepared = client.put(run_url, json=request, headers=HEADERS)
+    assert prepared.status_code == 200, prepared.text
+    draft = prepared.json()
+    assert draft["draft"]["evidenceExchangeId"] == str(evidence_id)
+    assert draft["draft"]["process"]["steps"][1]["sourceIds"] == ["policy"]
+    assert client.put(run_url, json=request, headers=HEADERS).json() == draft
+    assert client.get(f"{run_url}/handoff", headers=HEADERS).status_code == 409
+    bpmn = client.get(f"{run_url}/artifacts/process.bpmn", headers=HEADERS)
+    assert bpmn.status_code == 200
+    xml = fromstring(bpmn.content)
+    assert len(xml.findall(".//{*}exclusiveGateway")) == 1
+    assert len(xml.findall(".//{*}BPMNEdge")) == 3
+    approval = {"draftSha256": draft["draftSha256"]}
+    claim = client.post(f"{run_url}/figjam", json=approval, headers=HEADERS)
+    assert claim.json()["claimed"] is True
+    assert '-.->|"Invalid"|' in claim.json()["arguments"]["mermaidSyntax"]
+    assert client.post(f"{run_url}/figjam", json=approval, headers=HEADERS).json()["claimed"] is False
+    publication = {**approval, "figjamUrl": "https://www.figma.com/board/BA123/Create-mobile-phone"}
+    assert (
+        client.put(f"{run_url}/publication", json={**publication, "draftSha256": "0" * 64}, headers=HEADERS).status_code
+        == 409
+    )
+    assert client.put(f"{run_url}/publication", json=publication, headers=HEADERS).status_code == 503
+    assert client.get(run_url, headers=HEADERS).json()["status"] == "jira_pending"
+    result = client.put(f"{run_url}/publication", json=publication, headers=HEADERS)
+    assert result.status_code == 200, result.text
+    assert result.json()["jiraIssue"]["key"] == "STORE-100"
+    assert client.put(f"{run_url}/publication", json=publication, headers=HEADERS).json() == result.json()
+    assert client.get(f"{run_url}/handoff", headers=HEADERS).json() == result.json()
+    return run_url
+
+
+def test_run_reuses_evidence_and_recovers_jira_without_a_second_create() -> None:
+    agent = ProcessFixture()
+    jira = JiraCreateThenLoseResponse()
+    app = create_app(
+        _knowledge_settings(),
+        MemoryRepository(),
+        knowledge_transport=MockTransport(_knowledge_response),
+        run_repository=MemoryRuns(),
+        agent=agent,
+        jira=jira,
+    )
+    with TestClient(app) as client:
+        _exercise_run(client)
+    assert agent.calls == jira.creates == 1
+
+
+def test_run_rejects_agent_citations_outside_the_evidence() -> None:
+    app = create_app(
+        _knowledge_settings(),
+        MemoryRepository(),
+        knowledge_transport=MockTransport(_knowledge_response),
+        run_repository=MemoryRuns(),
+        agent=ProcessFixture(source_id="made-up-source"),
+    )
+    with TestClient(app) as client:
+        session = client.post("/api/v1/sessions", json={"operation": "model-flow"}, headers=HEADERS)
+        url = f"/api/v1/sessions/{session.json()['id']}/runs/{uuid4()}"
+        response = client.put(url, json=REQUEST, headers=HEADERS)
+        assert response.status_code == 502, response.text
+        assert response.json()["code"] == "agent_invalid_response"
+        assert client.get(url, headers=HEADERS).json()["draft"] is None
+
+
 @pytest.mark.skipif(not getenv("TEST_MONGODB_URI"), reason="Set TEST_MONGODB_URI to run real MongoDB checks")
 def test_mongodb_persists_capture_across_restarts() -> None:
     uri = getenv("TEST_MONGODB_URI", "")
     database = f"test_ba_{uuid4().hex}"
     settings = _knowledge_settings(mongodb_uri=SecretStr(uri), mongodb_database=database)
     try:
-        with TestClient(create_app(settings, knowledge_transport=MockTransport(_knowledge_response))) as client:
+        with TestClient(
+            create_app(
+                settings,
+                knowledge_transport=MockTransport(_knowledge_response),
+                agent=ProcessFixture(),
+                jira=JiraCreateThenLoseResponse(),
+            )
+        ) as client:
             session_url, exchange_url, headers = _exercise_session(client)
             captured = client.get(exchange_url, headers=headers).json()
             evidence_session, evidence_id, evidence = _resolve_evidence(client)
             assert evidence.status_code == 200, evidence.text
             evidence_json = evidence.json()
+            run_url = _exercise_run(client)
+            run_json = client.get(f"{run_url}/handoff", headers=HEADERS).json()
         with TestClient(create_app(settings)) as client:
             assert client.get(session_url, headers=headers).json()["jiraIssueKey"] == "STORE-12"
             assert client.get(exchange_url, headers=headers).json() == captured
             assert client.get(evidence_session, headers=headers).json()["snapshotId"] == SNAPSHOT_ID
             replay = client.put(f"{evidence_session}/evidence/{evidence_id}", json=REQUEST, headers=HEADERS)
             assert replay.json() == evidence_json
+            assert client.get(f"{run_url}/handoff", headers=HEADERS).json() == run_json
     finally:
         with MongoClient[dict[str, object]](uri, timeoutMS=3000) as mongo:
             mongo.drop_database(database)

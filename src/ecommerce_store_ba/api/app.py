@@ -4,9 +4,10 @@ from hmac import compare_digest
 from typing import Annotated, Any, cast
 from uuid import UUID
 
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from fastapi import APIRouter, Depends, FastAPI, Security
 from fastapi.security import APIKeyHeader
-from httpx2 import AsyncBaseTransport, AsyncClient
+from httpx2 import AsyncBaseTransport, AsyncClient, BasicAuth
 from pymongo import AsyncMongoClient
 from pymongo.errors import PyMongoError
 from starlette.requests import Request
@@ -27,11 +28,17 @@ from ecommerce_store_ba.api.errors import (
     install_error_handlers,
     problem_responses,
 )
+from ecommerce_store_ba.api.runs import run_router
 from ecommerce_store_ba.application.evidence_service import EvidenceService
 from ecommerce_store_ba.application.ports import SessionRepository
+from ecommerce_store_ba.application.run_models import JiraPublisher, ProcessAgent, RunRepository
+from ecommerce_store_ba.application.run_service import RunService
 from ecommerce_store_ba.application.session_service import CaptureExchange, SessionService, canonical_json
+from ecommerce_store_ba.infrastructure.foundry_client import FOUNDRY_SCOPE, FoundryProcessAgent
+from ecommerce_store_ba.infrastructure.jira_client import JiraClient
 from ecommerce_store_ba.infrastructure.knowledge_client import KnowledgeClient
 from ecommerce_store_ba.infrastructure.mongo_repository import Document, MongoSessionRepository
+from ecommerce_store_ba.infrastructure.mongo_runs import MongoRunRepository
 from ecommerce_store_ba.infrastructure.settings import Settings
 
 key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
@@ -42,6 +49,9 @@ def create_app(
     repository: SessionRepository | None = None,
     *,
     knowledge_transport: AsyncBaseTransport | None = None,
+    run_repository: RunRepository | None = None,
+    agent: ProcessAgent | None = None,
+    jira: JiraPublisher | None = None,
 ) -> FastAPI:
     config = settings or Settings()
     expected_key = config.api_key.get_secret_value().encode()
@@ -52,12 +62,16 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         async with AsyncExitStack() as stack:
             store = repository
+            runs = run_repository
             if store is None:
                 client = await stack.enter_async_context(
                     AsyncMongoClient[Document](config.mongodb_uri.get_secret_value(), tz_aware=True, timeoutMS=3000)
                 )
                 app.state.mongo = client
-                store = MongoSessionRepository(client[config.mongodb_database])
+                database = client[config.mongodb_database]
+                store = MongoSessionRepository(database)
+                if runs is None:
+                    runs = MongoRunRepository(database)
             sessions = SessionService(store)
             app.state.session_service = sessions
             knowledge = None
@@ -72,7 +86,15 @@ def create_app(
                     )
                 )
                 knowledge = KnowledgeClient(upstream)
-            app.state.evidence_service = EvidenceService(sessions, knowledge)
+            evidence = EvidenceService(sessions, knowledge)
+            app.state.evidence_service = evidence
+            app.state.run_service = (
+                RunService(
+                    sessions, evidence, runs, agent or await _foundry(config, stack), jira or await _jira(config, stack)
+                )
+                if runs is not None
+                else None
+            )
             yield
 
     app = FastAPI(title="ECommerce Store BA", docs_url="/swagger", lifespan=lifespan)
@@ -148,6 +170,7 @@ def create_app(
         return ExchangeResponse.from_domain(exchange)
 
     app.include_router(router)
+    app.include_router(run_router(authorize))
     original_openapi = app.openapi
 
     def openapi() -> dict[str, Any]:
@@ -164,3 +187,36 @@ def create_app(
 
     app.openapi = openapi
     return app
+
+
+async def _foundry(config: Settings, stack: AsyncExitStack) -> ProcessAgent | None:
+    if config.foundry_project_endpoint is None or config.foundry_agent_version is None:
+        return None
+    credential = stack.enter_context(DefaultAzureCredential())
+    client = await stack.enter_async_context(
+        AsyncClient(base_url=str(config.foundry_project_endpoint).rstrip("/") + "/", timeout=90, follow_redirects=False)
+    )
+    return FoundryProcessAgent(
+        client,
+        get_bearer_token_provider(credential, FOUNDRY_SCOPE),
+        config.foundry_agent_name,
+        config.foundry_agent_version,
+        config.foundry_max_output_tokens,
+    )
+
+
+async def _jira(config: Settings, stack: AsyncExitStack) -> JiraPublisher | None:
+    if config.jira_site_url is None or config.jira_project_key is None or config.jira_issue_type_id is None:
+        return None
+    token = config.jira_api_token.get_secret_value()
+    if not config.jira_email or not token:
+        return None
+    client = await stack.enter_async_context(
+        AsyncClient(
+            base_url=str(config.jira_api_url or config.jira_site_url).rstrip("/") + "/rest/api/3/",
+            auth=BasicAuth(config.jira_email, token),
+            timeout=25,
+            follow_redirects=False,
+        )
+    )
+    return JiraClient(client, str(config.jira_site_url), config.jira_project_key, config.jira_issue_type_id)

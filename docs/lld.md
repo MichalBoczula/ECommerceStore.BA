@@ -15,16 +15,18 @@ document keys. The request and response are persisted together in one insert.
 
 | Boundary | Foundation | Follow-up |
 | --- | --- | --- |
-| Jira | Issue reference and capture source | Read approved criteria through a Jira adapter |
-| Knowledge Assistant | Catalog selection, snapshot pinning, and operation evidence capture | Feed a captured evidence bundle into BA process modeling |
-| Agent | Operation, model and input/output evidence | Invoke the BA agent through an application port |
-| Evaluation | Immutable evidence retrieval | Compare claims with pinned sources and record review labels |
+| Jira | Read issue requirements and publish the approved process | Preserve existing issue content and identify created issues by run label |
+| Knowledge Assistant | Catalog selection, snapshot pinning, and operation evidence capture | Consume the same saved evidence on retries |
+| Agent | Versioned Foundry Prompt Agent behind an application port | Validate graph and citations before saving a draft |
+| Diagram | BPMN with diagram coordinates and Mermaid from one draft | Use a supported Figma MCP client to create the editable FigJam board |
+| QA | Published run handoff with links and source versions | Read the approved process by session and run ID |
 
-The BA worker will produce a versioned process model for BPMN, FigJam and the QA service.
-A registered session represents metadata for orchestration. Execution status,
-queue delivery and workers will be introduced with the execution use cases.
-Capture records supply evidence for evaluation. Quality labels and any training
-dataset will have their own review and provenance.
+The run stores the draft and exported documents as one version. A hash identifies
+the exact version being approved. MongoDB grants a time-bounded lease per run to
+keep concurrent callers from publishing the same artifact twice. The Figma client
+claims publication before invoking MCP. BA stores the returned board URL before
+writing to Jira. An uncertain Jira create is reconciled with its unique run label.
+BA also serializes its updates to the same existing issue across runs.
 
 Evidence resolution uses the existing session store. The repository binds a
 session's snapshot only while the field is unset. The application checks the

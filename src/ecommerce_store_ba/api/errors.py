@@ -14,6 +14,18 @@ from ecommerce_store_ba.application.knowledge import (
     KnowledgeSnapshotError,
     KnowledgeUnavailableError,
 )
+from ecommerce_store_ba.application.run_errors import (
+    AgentResponseError,
+    AgentUnavailableError,
+    JiraPublicationPendingError,
+    JiraRejectedError,
+    JiraUnavailableError,
+    RunBusyError,
+    RunConflictError,
+    RunEvidenceError,
+    RunNotFoundError,
+    RunNotReadyError,
+)
 from ecommerce_store_ba.application.session_service import (
     ExchangeConflictError,
     ExchangeNotFoundError,
@@ -68,6 +80,29 @@ ERRORS: dict[type[Exception], ErrorSpec] = {
         502, "knowledge_invalid_response", "Knowledge Assistant returned invalid evidence."
     ),
     KnowledgeUnavailableError: ErrorSpec(503, "knowledge_unavailable", "Knowledge Assistant is unavailable."),
+    RunNotFoundError: ErrorSpec(404, "run_not_found", "BA run was not found."),
+    RunConflictError: ErrorSpec(409, "run_conflict", "The request does not match the saved run, draft or FigJam link."),
+    RunBusyError: ErrorSpec(
+        409, "run_in_progress", "A request is already processing this run. Retry with the same ID."
+    ),
+    RunNotReadyError: ErrorSpec(409, "run_not_ready", "The run has not reached the requested stage."),
+    RunEvidenceError: ErrorSpec(
+        409, "run_evidence_mismatch", "The run needs operation evidence from its pinned snapshot."
+    ),
+    AgentUnavailableError: ErrorSpec(503, "agent_unavailable", "The Foundry process agent is unavailable."),
+    AgentResponseError: ErrorSpec(
+        502, "agent_invalid_response", "Foundry returned an invalid process draft or sources."
+    ),
+    JiraRejectedError: ErrorSpec(
+        503, "jira_request_rejected", "Jira rejected the request. Check the project and credentials."
+    ),
+    JiraUnavailableError: ErrorSpec(503, "jira_unavailable", "The Jira operation could not be confirmed."),
+    JiraPublicationPendingError: ErrorSpec(
+        409,
+        "jira_publication_pending",
+        "Jira has not confirmed the create request. Retry the same publication to look it up.",
+    ),
+    TimeoutError: ErrorSpec(504, "run_timeout", "The run timed out. Retry with the same run ID."),
     ConnectionFailure: UNAVAILABLE,
 }
 
