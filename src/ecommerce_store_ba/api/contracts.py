@@ -1,10 +1,10 @@
 from datetime import datetime
-from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter
 from pydantic.alias_generators import to_camel
 
+from ecommerce_store_ba.application.run_models import OperationLookup
 from ecommerce_store_ba.domain.session import Exchange, ExchangeSource, Operation, Session
 
 JSON_VALUE: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
@@ -45,10 +45,8 @@ class CaptureExchangeRequest(ApiModel):
     model: str | None = Field(default=None, min_length=1, max_length=128)
 
 
-class EvidenceRequest(ApiModel):
-    service: Literal["products", "users", "invoices", "payments"]
-    method: Literal["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE", "TRACE"]
-    path: str = Field(min_length=1, max_length=512, pattern=r"^/[a-zA-Z0-9_./{}%~-]*$")
+class EvidenceRequest(OperationLookup):
+    pass
 
 
 class ExchangeResponse(ApiModel):
