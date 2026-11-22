@@ -26,6 +26,7 @@ the exact version being approved. MongoDB grants a time-bounded lease per run to
 keep concurrent callers from publishing the same artifact twice. The Figma client
 claims publication before invoking MCP. BA stores the returned board URL before
 writing to Jira. An uncertain Jira create is reconciled with its unique run label.
+BA also serializes its updates to the same existing issue across runs.
 
 Evidence resolution uses the existing session store. The repository binds a
 session's snapshot only while the field is unset. The application checks the

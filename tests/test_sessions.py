@@ -281,6 +281,7 @@ class MemoryRuns:
     def __init__(self) -> None:
         self.runs: dict[tuple[UUID, UUID], Run] = {}
         self.leases: dict[tuple[UUID, UUID], UUID] = {}
+        self.jira_leases: dict[str, UUID] = {}
 
     async def put(self, run: Run) -> Run:
         return self.runs.setdefault((run.session_id, run.id), run)
@@ -304,6 +305,13 @@ class MemoryRuns:
     async def release(self, session_id: UUID, run_id: UUID, token: UUID) -> None:
         if self.leases.get((session_id, run_id)) == token:
             del self.leases[session_id, run_id]
+
+    async def claim_jira_issue(self, key: str, token: UUID, now: datetime, until: datetime) -> bool:
+        return self.jira_leases.setdefault(key, token) == token
+
+    async def release_jira_issue(self, key: str, token: UUID) -> None:
+        if self.jira_leases.get(key) == token:
+            del self.jira_leases[key]
 
 
 class ProcessFixture:

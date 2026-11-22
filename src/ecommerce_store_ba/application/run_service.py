@@ -167,9 +167,17 @@ class RunService:
     async def _publish_jira(self, run: Run, token: UUID) -> Run:
         if self._jira is None:
             raise JiraUnavailableError
-        session = await self._sessions.get(run.session_id)
-        if session.jira_issue_key is not None:
-            issue = await self._jira.update_issue(session.jira_issue_key, run)
+        assert run.draft is not None
+        if run.draft.jira_context is not None:
+            # Different runs can publish to the same existing Jira issue.
+            key = run.draft.jira_context.key
+            now = datetime.now(UTC)
+            if not await self._runs.claim_jira_issue(key, token, now, now + timedelta(minutes=5)):
+                raise RunBusyError
+            try:
+                issue = await self._jira.update_issue(key, run)
+            finally:
+                await self._runs.release_jira_issue(key, token)
         elif run.jira_requested_at is not None:
             issue = await self._jira.find_created_issue(run)
             if issue is None:

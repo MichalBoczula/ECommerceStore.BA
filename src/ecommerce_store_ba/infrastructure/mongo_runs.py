@@ -19,9 +19,16 @@ class RunDocument(TypedDict):
     lease_until: NotRequired[datetime]
 
 
+class JiraIssueLease(TypedDict):
+    _id: str
+    token: str
+    until: datetime
+
+
 class MongoRunRepository:
     def __init__(self, database: AsyncDatabase[Document]) -> None:
         self._collection = cast(AsyncCollection[RunDocument], database.get_collection("runs"))
+        self._jira_leases = cast(AsyncCollection[JiraIssueLease], database.get_collection("jira_issue_leases"))
 
     async def put(self, run: Run) -> Run:
         document = RunDocument(_id=_key(run.session_id, run.id), run_json=run.model_dump_json(by_alias=True))
@@ -62,6 +69,17 @@ class MongoRunRepository:
             {"_id": _key(session_id, run_id), "lease_token": str(token)},
             {"$unset": {"lease_token": "", "lease_until": ""}},
         )
+
+    async def claim_jira_issue(self, key: str, token: UUID, now: datetime, until: datetime) -> bool:
+        lease = JiraIssueLease(_id=key, token=str(token), until=until)
+        try:
+            await self._jira_leases.replace_one({"_id": key, "until": {"$lte": now}}, lease, upsert=True)
+        except DuplicateKeyError:
+            return False
+        return True
+
+    async def release_jira_issue(self, key: str, token: UUID) -> None:
+        await self._jira_leases.delete_one({"_id": key, "token": str(token)})
 
 
 def _key(session_id: UUID, run_id: UUID) -> str:
