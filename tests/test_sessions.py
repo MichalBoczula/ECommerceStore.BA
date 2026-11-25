@@ -1,3 +1,4 @@
+from asyncio import run
 from dataclasses import replace
 from datetime import datetime
 from json import dumps, loads
@@ -7,7 +8,7 @@ from xml.etree.ElementTree import fromstring
 
 import pytest
 from fastapi.testclient import TestClient
-from httpx2 import MockTransport, Request, Response
+from httpx2 import AsyncClient, MockTransport, Request, Response
 from pydantic import AnyHttpUrl, JsonValue, SecretStr
 from pymongo import MongoClient
 
@@ -17,6 +18,7 @@ from ecommerce_store_ba.application.run_errors import JiraUnavailableError, RunB
 from ecommerce_store_ba.application.run_models import AgentReceipt, JiraContext, JiraReference, Run
 from ecommerce_store_ba.domain.process import AcceptanceCriterion, Actor, ProcessDraft, Step, Transition
 from ecommerce_store_ba.domain.session import Exchange, Session
+from ecommerce_store_ba.infrastructure.foundry_client import FoundryProcessAgent
 from ecommerce_store_ba.infrastructure.settings import Settings
 
 
@@ -388,6 +390,58 @@ class JiraCreateThenLoseResponse:
 
     async def update_issue(self, key: str, run: Run) -> JiraReference:
         raise AssertionError("Expected publication to a new issue")
+
+
+def test_foundry_agent_uses_explicit_messages_and_validates_json_output() -> None:
+    async def exercise() -> None:
+        evidence = EvidenceBundle(
+            service="products",
+            snapshot_id=SNAPSHOT_ID,
+            contract=None,
+            scenarios=[],
+            validation_rules=[],
+            sources=[],
+            missing_evidence=[],
+            limitations=[],
+            knowledge_request_ids=[],
+        )
+        expected, receipt = await ProcessFixture().draft(evidence, None)
+
+        def upstream(request: Request) -> Response:
+            body = loads(request.content)
+            assert request.url.path == "/api/projects/store/openai/v1/responses"
+            assert body["agent_reference"] == {"type": "agent_reference", "name": "ba", "version": "1"}
+            assert "text" not in body
+            developer, user = body["input"]
+            assert developer["type"] == user["type"] == "message"
+            assert (developer["role"], user["role"]) == ("developer", "user")
+            assert loads(developer["content"].split("\n", 1)[1]) == ProcessDraft.model_json_schema(by_alias=True)
+            assert loads(user["content"]) == {
+                "knowledgeEvidence": evidence.model_dump(by_alias=True),
+                "jiraRequirements": None,
+            }
+            return Response(
+                200,
+                json={
+                    "id": receipt.response_id,
+                    "model": receipt.model,
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "message",
+                            "content": [{"type": "output_text", "text": expected.model_dump_json(by_alias=True)}],
+                        }
+                    ],
+                },
+            )
+
+        async with AsyncClient(
+            base_url="https://foundry.test/api/projects/store/", transport=MockTransport(upstream)
+        ) as client:
+            agent = FoundryProcessAgent(client, lambda: "token", "ba", "1", 6000)
+            assert await agent.draft(evidence, None) == (expected, receipt)
+
+    run(exercise())
 
 
 def _exercise_run(client: TestClient) -> str:

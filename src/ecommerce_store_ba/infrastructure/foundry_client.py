@@ -1,5 +1,6 @@
 from asyncio import to_thread
 from collections.abc import Callable
+from logging import getLogger
 from typing import Annotated
 
 from azure.core.exceptions import AzureError
@@ -13,6 +14,7 @@ from ecommerce_store_ba.application.session_service import canonical_json
 from ecommerce_store_ba.domain.process import ProcessDraft
 
 FOUNDRY_SCOPE = "https://ai.azure.com/.default"
+logger = getLogger(__name__)
 
 
 class _Content(BaseModel):
@@ -51,6 +53,8 @@ class FoundryProcessAgent:
                 else None
             ),
         }
+        # Foundry rejects text.format overrides when a saved agent is specified.
+        schema = canonical_json(ProcessDraft.model_json_schema(by_alias=True))
         try:
             response = await self._client.post(
                 "openai/v1/responses",
@@ -58,23 +62,27 @@ class FoundryProcessAgent:
                 headers={"Authorization": f"Bearer {await to_thread(self._token)}"},
                 json={
                     "agent_reference": {"type": "agent_reference", "name": self._name, "version": self._version},
-                    "input": canonical_json(payload),
+                    "input": [
+                        {
+                            "type": "message",
+                            "role": "developer",
+                            "content": (
+                                "Return exactly one JSON object matching this schema, without Markdown "
+                                f"or surrounding text.\n{schema}"
+                            ),
+                        },
+                        {"type": "message", "role": "user", "content": canonical_json(payload)},
+                    ],
                     "tool_choice": "none",
                     "store": False,
                     "max_output_tokens": self._max_output_tokens,
-                    "text": {
-                        "format": {
-                            "type": "json_schema",
-                            "name": "ba_process",
-                            "strict": True,
-                            "schema": ProcessDraft.model_json_schema(by_alias=True),
-                        }
-                    },
                 },
             )
-        except AzureError, RequestError:
+        except (AzureError, RequestError) as exc:
+            logger.warning("Foundry process agent request failed: %s", type(exc).__name__)
             raise AgentUnavailableError from None
         if not response.is_success:
+            logger.warning("Foundry process agent request failed: HTTP %s", response.status_code)
             raise AgentUnavailableError
         try:
             result = _Response.model_validate_json(response.content)
