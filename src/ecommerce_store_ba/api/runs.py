@@ -3,7 +3,7 @@ from re import fullmatch
 from typing import Annotated, Literal, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Body, Depends, Request, Response
 from pydantic import AnyHttpUrl, Field, computed_field, field_validator
 
 from ecommerce_store_ba.api.contracts import ApiModel
@@ -80,20 +80,58 @@ def _service(request: Request) -> RunService:
 def run_router(authorize: Callable[..., Awaitable[None]]) -> APIRouter:
     router = APIRouter(prefix="/api/v1/sessions/{session_id}/runs", tags=["BA runs"], dependencies=[Depends(authorize)])
 
-    @router.put("/{run_id}", responses=problem_responses(400, 401, 404, 409, 413, 502, 503, 504))
+    @router.put(
+        "/{run_id}",
+        summary="Prepare a sourced BA draft",
+        responses=problem_responses(400, 401, 404, 409, 413, 502, 503, 504),
+    )
     async def prepare(
-        session_id: UUID, run_id: UUID, body: RunRequest, service: Annotated[RunService, Depends(_service)]
+        session_id: UUID,
+        run_id: UUID,
+        body: Annotated[
+            RunRequest,
+            Body(
+                openapi_examples={
+                    "create-phone": {
+                        "summary": "Draft the Create Mobile Phone flow",
+                        "value": {"service": "products", "method": "POST", "path": "/mobile-phones"},
+                    }
+                }
+            ),
+        ],
+        service: Annotated[RunService, Depends(_service)],
     ) -> RunResponse:
+        """Use a caller-generated `run_id` UUID. BA resolves Knowledge evidence for the operation or reuses the
+        matching exchange supplied as `evidenceExchangeId`. If the session references a Jira issue, BA reads its
+        requirements before asking the configured Foundry agent for a process draft.
+
+        The saved draft contains steps, acceptance criteria, open questions, sources and diagram exports.
+        Retry with the same `run_id` and body to reuse work already saved. `409 knowledge_snapshot_unavailable`
+        indicates a snapshot selection problem. `503 agent_unavailable` indicates a Foundry configuration or
+        request failure. A draft is ready for human review before publication.
+        """
         return RunResponse.from_run(await service.prepare(session_id, run_id, body))
 
-    @router.get("/{run_id}", responses=problem_responses(400, 401, 404, 503))
+    @router.get("/{run_id}", summary="Review a saved BA run", responses=problem_responses(400, 401, 404, 503))
     async def review(session_id: UUID, run_id: UUID, service: Annotated[RunService, Depends(_service)]) -> RunResponse:
+        """Read the run's status, saved draft, source references and publication details. Review the process,
+        acceptance criteria and open questions. Copy `draftSha256` for approval and publication.
+        """
         return RunResponse.from_run(await service.get(session_id, run_id))
 
-    @router.post("/{run_id}/figjam", responses=problem_responses(400, 401, 404, 409, 503, 504))
+    @router.post(
+        "/{run_id}/figjam",
+        summary="Approve a draft and claim FigJam generation",
+        responses=problem_responses(400, 401, 404, 409, 503, 504),
+    )
     async def claim_figjam(
         session_id: UUID, run_id: UUID, body: DraftApproval, service: Annotated[RunService, Depends(_service)]
     ) -> FigJamClaim:
+        """Submit the reviewed `draftSha256` to record approval and claim diagram generation once.
+
+        When `claimed` is true, pass the returned `arguments` to Figma MCP's `generate_diagram` tool. Use the
+        returned editable board link when publishing. A repeated claim returns `claimed: false`.
+        """
         run, claimed = await service.claim_figjam(session_id, run_id, body.draft_sha256)
         arguments = None
         if claimed and run.draft is not None:
@@ -102,19 +140,47 @@ def run_router(authorize: Callable[..., Awaitable[None]]) -> APIRouter:
             )
         return FigJamClaim(run=RunResponse.from_run(run), claimed=claimed, arguments=arguments)
 
-    @router.put("/{run_id}/publication", responses=problem_responses(400, 401, 404, 409, 503, 504))
+    @router.put(
+        "/{run_id}/publication",
+        summary="Publish the approved draft to Jira",
+        responses=problem_responses(400, 401, 404, 409, 503, 504),
+    )
     async def publish(
         session_id: UUID, run_id: UUID, body: PublicationRequest, service: Annotated[RunService, Depends(_service)]
     ) -> RunResponse:
+        """Submit the reviewed `draftSha256` and an editable FigJam `figjamUrl`. BA saves the board link and
+        publishes the draft to the session's Jira issue, or creates an issue in the configured project.
+
+        Reuse the same hash and link on retry. If Jira's create result is uncertain, BA looks up the existing
+        issue on retry. A successful response includes the Jira issue and `published` status.
+        """
         return RunResponse.from_run(await service.publish(session_id, run_id, body.draft_sha256, str(body.figjam_url)))
 
-    @router.get("/{run_id}/artifacts/{name}", responses=problem_responses(400, 401, 404, 409, 503))
+    @router.get(
+        "/{run_id}/artifacts/{name}",
+        summary="Download a BA run artifact",
+        responses={
+            200: {
+                "description": "The requested artifact as a downloadable attachment.",
+                "model": RunResponse,
+                "content": {
+                    "application/xml": {"schema": {"type": "string"}},
+                    "text/plain": {"schema": {"type": "string"}},
+                },
+                "headers": {"Content-Disposition": {"schema": {"type": "string"}}},
+            },
+            **problem_responses(400, 401, 404, 409, 503),
+        },
+    )
     async def artifact(
         session_id: UUID,
         run_id: UUID,
         name: Literal["flow.json", "process.bpmn", "process.mmd"],
         service: Annotated[RunService, Depends(_service)],
     ) -> Response:
+        """Download `flow.json` for the saved run, `process.bpmn` for the BPMN XML, or `process.mmd` for the
+        Mermaid source. The run must have a draft. Before that it returns `409 run_not_ready`.
+        """
         run = await service.get(session_id, run_id)
         if run.draft is None:
             raise RunNotReadyError
@@ -127,8 +193,15 @@ def run_router(authorize: Callable[..., Awaitable[None]]) -> APIRouter:
             return Response(run.draft.bpmn, media_type="application/xml", headers=headers)
         return Response(run.draft.mermaid, media_type="text/plain", headers=headers)
 
-    @router.get("/{run_id}/handoff", responses=problem_responses(400, 401, 404, 409, 503))
+    @router.get(
+        "/{run_id}/handoff",
+        summary="Read the published run for QA",
+        responses=problem_responses(400, 401, 404, 409, 503),
+    )
     async def handoff(session_id: UUID, run_id: UUID, service: Annotated[RunService, Depends(_service)]) -> RunResponse:
+        """Read the published process and acceptance criteria for QA, with its pinned snapshot, evidence exchange,
+        sources, approval, and Jira and FigJam links. Returns `409 run_not_ready` until publication succeeds.
+        """
         run = await service.get(session_id, run_id)
         if run.published_at is None:
             raise RunNotReadyError

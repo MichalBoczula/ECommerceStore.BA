@@ -5,7 +5,7 @@ from typing import Annotated, Any, cast
 from uuid import UUID
 
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
-from fastapi import APIRouter, Depends, FastAPI, Security
+from fastapi import APIRouter, Body, Depends, FastAPI, Security
 from fastapi.security import APIKeyHeader
 from httpx2 import AsyncBaseTransport, AsyncClient, BasicAuth
 from pymongo import AsyncMongoClient
@@ -41,7 +41,7 @@ from ecommerce_store_ba.infrastructure.mongo_repository import Document, MongoSe
 from ecommerce_store_ba.infrastructure.mongo_runs import MongoRunRepository
 from ecommerce_store_ba.infrastructure.settings import Settings
 
-key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
+key_header = APIKeyHeader(name="X-Api-Key", description="Shared BA API key (`BA_API_KEY`).", auto_error=False)
 
 
 def create_app(
@@ -97,7 +97,17 @@ def create_app(
             )
             yield
 
-    app = FastAPI(title="ECommerce Store BA", docs_url="/swagger", lifespan=lifespan)
+    app = FastAPI(
+        title="ECommerce Store BA",
+        description=(
+            "Draft business processes and acceptance criteria from versioned Knowledge Assistant evidence "
+            "and optional Jira requirements. In Swagger, select **Authorize** with the BA API key. "
+            "Create a session, prepare and review a run, then publish the approved draft to Jira "
+            "with its FigJam link before handing it off to QA."
+        ),
+        docs_url="/swagger",
+        lifespan=lifespan,
+    )
     install_error_handlers(app)
 
     async def authorize(key: Annotated[str | None, Security(key_header)]) -> None:
@@ -112,12 +122,14 @@ def create_app(
 
     router = APIRouter(prefix="/api/v1/sessions", tags=["Sessions"], dependencies=[Depends(authorize)])
 
-    @app.get("/health/live", tags=["Health"])
+    @app.get("/health/live", tags=["Health"], summary="Check whether the BA process is alive")
     async def live() -> dict[str, str]:
+        """Return `200` when the BA API process can serve requests. No API key is required."""
         return {"status": "ok"}
 
-    @app.get("/health/ready", tags=["Health"], responses=problem_responses(503))
+    @app.get("/health/ready", tags=["Health"], summary="Check MongoDB readiness", responses=problem_responses(503))
     async def ready(request: Request) -> dict[str, str]:
+        """Ping the configured MongoDB store. Return `503` when the ping fails. No API key is required."""
         if repository is None:
             client = cast(AsyncMongoClient[Document], request.app.state.mongo)
             try:
@@ -126,25 +138,47 @@ def create_app(
                 raise RequestProblem(UNAVAILABLE) from error
         return {"status": "ok"}
 
-    @router.post("", status_code=201, responses=problem_responses(400, 401, 503))
+    @router.post("", status_code=201, summary="Create a BA session", responses=problem_responses(400, 401, 503))
     async def create_session(
-        body: CreateSessionRequest, service: Annotated[SessionService, Depends(session_service)]
+        body: Annotated[
+            CreateSessionRequest,
+            Body(
+                openapi_examples={"model-flow": {"summary": "Start a BA session", "value": {"operation": "model-flow"}}}
+            ),
+        ],
+        service: Annotated[SessionService, Depends(session_service)],
     ) -> SessionResponse:
+        """Register a `model-flow` session and return its `id` for evidence and run requests.
+
+        Pass `snapshotId` to pin a specific Knowledge snapshot. Otherwise the first evidence lookup pins the sole
+        live snapshot for the requested service. Pass `jiraIssueKey` to use an existing Jira issue as input and
+        update it when publishing the run.
+        """
         return SessionResponse.from_domain(await service.create(body.operation, body.jira_issue_key, body.snapshot_id))
 
-    @router.get("/{session_id}", responses=problem_responses(400, 401, 404, 503))
+    @router.get("/{session_id}", summary="Read a BA session", responses=problem_responses(400, 401, 404, 503))
     async def get_session(
         session_id: UUID, service: Annotated[SessionService, Depends(session_service)]
     ) -> SessionResponse:
+        """Read the session metadata, including its pinned `snapshotId` and optional `jiraIssueKey`."""
         return SessionResponse.from_domain(await service.get(session_id))
 
-    @router.put("/{session_id}/exchanges/{exchange_id}", responses=problem_responses(400, 401, 404, 409, 413, 503))
+    @router.put(
+        "/{session_id}/exchanges/{exchange_id}",
+        summary="Record an immutable request and response",
+        responses=problem_responses(400, 401, 404, 409, 413, 503),
+    )
     async def capture_exchange(
         session_id: UUID,
         exchange_id: UUID,
         body: CaptureExchangeRequest,
         service: Annotated[SessionService, Depends(session_service)],
     ) -> ExchangeResponse:
+        """Save a caller-supplied, redacted JSON request and response under a caller-generated `exchange_id` UUID.
+
+        Specify `source` as `agent`, `jira`, or `rag`. The combined canonical JSON limit is 256 KiB. Reuse the same
+        UUID and payload on retries. A different payload for the same exchange returns `409 exchange_conflict`.
+        """
         try:
             request_json = canonical_json(body.request)
             response_json = canonical_json(body.response)
@@ -153,19 +187,44 @@ def create_app(
         capture = CaptureExchange(body.source, request_json, response_json, body.model)
         return ExchangeResponse.from_domain(await service.capture(session_id, exchange_id, capture))
 
-    @router.get("/{session_id}/exchanges/{exchange_id}", responses=problem_responses(400, 401, 404, 503))
+    @router.get(
+        "/{session_id}/exchanges/{exchange_id}",
+        summary="Read a stored exchange",
+        responses=problem_responses(400, 401, 404, 503),
+    )
     async def get_exchange(
         session_id: UUID, exchange_id: UUID, service: Annotated[SessionService, Depends(session_service)]
     ) -> ExchangeResponse:
+        """Read a captured request and response, including any evidence stored by the Knowledge lookup endpoint."""
         return ExchangeResponse.from_domain(await service.get_exchange(session_id, exchange_id))
 
-    @router.put("/{session_id}/evidence/{exchange_id}", responses=problem_responses(400, 401, 404, 409, 413, 502, 503))
+    @router.put(
+        "/{session_id}/evidence/{exchange_id}",
+        summary="Resolve and store Knowledge evidence for an operation",
+        responses=problem_responses(400, 401, 404, 409, 413, 502, 503),
+    )
     async def resolve_evidence(
         session_id: UUID,
         exchange_id: UUID,
-        body: EvidenceRequest,
+        body: Annotated[
+            EvidenceRequest,
+            Body(
+                openapi_examples={
+                    "create-phone": {
+                        "summary": "Look up the Create Mobile Phone operation",
+                        "value": {"service": "products", "method": "POST", "path": "/mobile-phones"},
+                    }
+                }
+            ),
+        ],
         service: Annotated[EvidenceService, Depends(evidence_service)],
     ) -> ExchangeResponse:
+        """Capture the operation's contract, validation rules, test scenarios and source references from Knowledge.
+
+        Generate an `exchange_id` UUID and reuse it with the same operation on retry. The result is a stored `rag`
+        exchange. A run can reuse it via `evidenceExchangeId`. `409 knowledge_snapshot_unavailable` means there was
+        no unique live snapshot matching the service and the session's pin, if one was supplied.
+        """
         exchange = await service.resolve(session_id, exchange_id, body.service, body.method, body.path)
         return ExchangeResponse.from_domain(exchange)
 
