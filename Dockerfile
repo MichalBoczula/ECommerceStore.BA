@@ -8,6 +8,11 @@ COPY src/ ./src/
 RUN uv sync --locked --no-dev --no-editable
 
 FROM python:3.14.7-slim-bookworm
+RUN apt-get -o Acquire::Retries=0 update \
+    && apt-get -o Acquire::Retries=0 upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m pip uninstall --yes pip \
+    && rm -rf /usr/local/lib/python3.14/ensurepip
 WORKDIR /app
 ENV PATH="/app/.venv/bin:${PATH}" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 COPY --from=build --chown=10001:10001 /app/.venv /app/.venv
