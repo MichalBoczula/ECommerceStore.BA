@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   verify:
     # Match the MongoDB 8.0 runner used by Payments (SERVER-121912).
@@ -35,28 +39,76 @@ jobs:
       - run: docker compose config --quiet
         env:
           BA_API_KEY: ci-build-only
-      - run: docker build -t ecommerce-store-ba:ci .
-      - name: Publish the verified BA image
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the BA image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ecommerce-store-ba:ci
+
+      - name: Scan the BA image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ecommerce-store-ba:ci
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+      - name: Record the scanned image identity
+        shell: bash
+        run: |
+          image_id="$(docker image inspect --format '{{.Id}}' ecommerce-store-ba:ci)"
+          test -n "$image_id"
+          printf 'SCANNED_IMAGE_ID=%s\n' "$image_id" >> "$GITHUB_ENV"
+          printf 'Scanned image ID: %s\n' "$image_id" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Log in to Docker Hub
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Tag and publish the scanned BA image
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: bash
         env:
           DOCKER_USER: ${{ secrets.DOCKER_USER }}
-          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "$DOCKER_USER"
-          test -n "$DOCKER_TOKEN"
           image="docker.io/${DOCKER_USER}/ecommerce-store-ba"
-          version="${image}:${GITHUB_SHA}"
-          printf '%s' "$DOCKER_TOKEN" | docker login --username "$DOCKER_USER" --password-stdin
-          docker tag ecommerce-store-ba:ci "$version"
-          docker push "$version"
-          digest_reference="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$version" | awk -F@ '/\/ecommerce-store-ba@sha256:/ {print $2; exit}')"
-          [[ "$digest_reference" =~ ^sha256:[0-9a-f]{64}$ ]]
+          sha_tag="${image}:${GITHUB_SHA}"
+          test "$SCANNED_IMAGE_ID" = "$(docker image inspect --format '{{.Id}}' ecommerce-store-ba:ci)"
+
+          docker tag ecommerce-store-ba:ci "$sha_tag"
+          test "$SCANNED_IMAGE_ID" = "$(docker image inspect --format '{{.Id}}' "$sha_tag")"
+          docker push "$sha_tag" | tee "$RUNNER_TEMP/ba-push-sha.log"
+          sha_digest="$(awk '/digest: sha256:/ { digest=$3 } END { print digest }' "$RUNNER_TEMP/ba-push-sha.log")"
+          [[ "$sha_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+          if [[ "$GITHUB_EVENT_NAME" == 'push' ]]; then
+            latest_tag="${image}:latest"
+            docker tag ecommerce-store-ba:ci "$latest_tag"
+            test "$SCANNED_IMAGE_ID" = "$(docker image inspect --format '{{.Id}}' "$latest_tag")"
+            docker push "$latest_tag" | tee "$RUNNER_TEMP/ba-push-latest.log"
+            latest_digest="$(awk '/digest: sha256:/ { digest=$3 } END { print digest }' "$RUNNER_TEMP/ba-push-latest.log")"
+            test "$sha_digest" = "$latest_digest"
+          fi
+
           mkdir -p artifacts
-          jq -n --arg image "${image}@${digest_reference}" --arg commit "$GITHUB_SHA" \
+          jq -n --arg image "${image}@${sha_digest}" --arg commit "$GITHUB_SHA" \
             '{application: "ba", imageReference: $image, commitSha: $commit}' > artifacts/image-reference.json
+          printf 'Published %s from scanned image %s with digest %s.\n' \
+            "$sha_tag" "$SCANNED_IMAGE_ID" "$sha_digest" >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         with:
           name: image-reference
           path: artifacts/image-reference.json

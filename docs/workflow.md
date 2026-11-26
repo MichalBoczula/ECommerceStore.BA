@@ -63,4 +63,4 @@ Reuse the session ID, run ID, draft hash and FigJam URL for every retry. BA keep
 
 ## Package for DEV
 
-The CI workflow's manual run on `main` can publish the verified image when `DOCKER_USER` and `DOCKER_TOKEN` are configured. Use the `image-reference` artifact to pin the digest in Terraform. The deployment review and provider acceptance are tracked in BA/06.
+On pushes to `main`, CI publishes the tested and scanned BA image to Docker Hub with the commit SHA and `latest` tags. A manual run on `main` publishes the commit SHA tag. Publication uses `DOCKER_USER` and `DOCKER_TOKEN`. Use `imageReference` from the `image-reference` artifact to set `app_images.ba` in Terraform. The deployment review and provider acceptance are tracked in BA/06.
